@@ -1,0 +1,98 @@
+flowchart TB
+
+  SRC[/"SOURCE FOLDER<br/>/evidence/phone_dump<br/>read-only — never written to"/]
+
+  %% ---------- PASS 1 ----------
+  subgraph P1["1. puff index FOLDER --index case1.puff   — v0, no AI"]
+    direction TB
+    OPEN{"case1.puff exists?"}
+    OPEN -->|"no"| CREATE["create it<br/>record source_root,<br/>created_at, puff_version"]
+    OPEN -->|"yes, same source_root"| RESUME["RESUME<br/>the crash-recovery path"]
+    OPEN -->|"yes, DIFFERENT source_root"| REFUSE["REFUSE<br/>error and exit<br/>change nothing"]
+
+    CREATE --> WALK
+    RESUME --> WALK
+    WALK["walk the folder recursively"] --> SNIFF{"real image?<br/>decided by contents,<br/>never the extension"}
+    SNIFF -->|"no"| SKIP["to skipped table<br/>path + why"]
+    SNIFF -->|"yes"| HASH["SHA-256 the bytes<br/>this is the picture's identity"]
+    HASH --> SEEN{"hash already known?"}
+    SEEN -->|"no — new picture"| NEWPIC["to pictures table<br/>sha256, format, w, h<br/>embedding = NULL<br/>ocr_status = pending"]
+    SEEN -->|"yes — duplicate"| DUP["nothing new in pictures"]
+    NEWPIC --> FILEROW
+    DUP --> FILEROW
+    FILEROW["to files table<br/>path, size, mtime, sha256<br/>always written — one row per path"]
+  end
+
+  SRC ==>|"reads bytes"| OPEN
+
+  %% ---------- THE INDEX ----------
+  DB[("case1.puff — ONE FILE<br/>———————————<br/>pictures · files · skipped<br/>meta · fts5<br/>———————————<br/>vectors live as BLOBs<br/>on the picture's own row")]
+
+  FILEROW --> DB
+  SKIP --> DB
+  REFUSE -.-> STOP(["exit"])
+
+  %% ---------- PASS 2 ----------
+  subgraph P2["2. puff embed --index case1.puff   — v1"]
+    direction TB
+    Q2["SELECT sha256 FROM pictures<br/>WHERE embedding IS NULL<br/>← the whole resumability trick"]
+    Q2 --> BATCH["batch about 32 images"]
+    BATCH --> SIGI["SigLIP IMAGE encoder"]
+    SIGI --> NORM["L2-normalise<br/>so cosine becomes a dot product"]
+    NORM --> STORE["store_vector sha, vec<br/>ONE transaction<br/>cannot half-happen"]
+  end
+
+  %% ---------- PASS 3 ----------
+  subgraph P3["3. puff ocr --index case1.puff   — v2"]
+    direction TB
+    Q3["SELECT sha256 FROM pictures<br/>WHERE ocr_status = pending"]
+    Q3 --> GATE{"D5 — OCR gate<br/>STILL UNDECIDED<br/>likely to hold text?"}
+    GATE -->|"no"| GSKIP["ocr_status = skipped_by_gate"]
+    GATE -->|"yes"| TESS["Tesseract"]
+    TESS --> FTS["text into FTS5<br/>ocr_status = done"]
+  end
+
+  DB --> Q2
+  STORE --> DB
+  DB --> Q3
+  FTS --> DB
+  GSKIP --> DB
+
+  %% ---------- QUERIES ----------
+  subgraph QA["4. puff search 'a laptop on a desk'   — v1, semantic"]
+    direction TB
+    QT["SigLIP TEXT encoder<br/>one query vector"]
+    QT --> LOAD["load_all_vectors<br/>300 pics = 900 KB = instant"]
+    LOAD --> DOT["matrix · query<br/>one similarity score per picture"]
+    DOT --> TOPK["argsort, take top-k PICTURES"]
+  end
+
+  subgraph QB["5. puff text 'INVOICE'   — v2, literal"]
+    direction TB
+    FTSQ["FTS5 MATCH"] --> TOPK2["matching PICTURES"]
+  end
+
+  DB -.-> LOAD
+  DB -.-> FTSQ
+
+  TOPK --> JOIN
+  TOPK2 --> JOIN
+  JOIN["for each picture,<br/>fetch ALL of its file paths"]
+  JOIN --> OUT["search returns a LIST OF RESULTS<br/>one entry per picture<br/>score · sha · all its paths<br/>dedupe the entry, keep the paths —<br/>where a file sits is evidence"]
+
+  subgraph D6G["D6 — SETTLED: computing and printing are separate"]
+    direction LR
+    OUT --> PT["print_table<br/>terminal — now"]
+    OUT -.-> PJ["--json flag<br/>3 lines, whenever wanted"]
+    OUT -.-> PG["Gradio gallery — v3<br/>a second formatter,<br/>NOT a rewrite"]
+    OUT -.-> PE["evaluation script — v3<br/>calls search directly,<br/>never parses the terminal"]
+  end
+
+  classDef src fill:#1a202c,stroke:#a0aec0,color:#e2e8f0
+  classDef db fill:#1e3a5f,stroke:#63b3ed,color:#fff
+  classDef stop fill:#63171b,stroke:#fc8181,color:#fff
+  classDef open fill:#553c1b,stroke:#f6ad55,color:#fff
+  class SRC src
+  class DB db
+  class REFUSE,STOP stop
+  class GATE open

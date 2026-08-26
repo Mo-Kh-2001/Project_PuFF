@@ -1,0 +1,82 @@
+flowchart TB
+
+  START(["Analyst has a folder of images<br/>and a question:<br/>'is there anything in here?'"])
+
+  %% ============ STEP 1 ============
+  START --> U1["TYPES:<br/>puff index /evidence/dump --index case1.puff"]
+  U1 --> S1{"does case1.puff exist?"}
+
+  S1 -->|"different source_root"| E1["SEES:<br/>ERROR — case1.puff was built from<br/>/evidence/other_case<br/>Refusing. Nothing changed.<br/>Use a different --index name."]
+  E1 --> U1
+
+  S1 -->|"exists, same source"| R1["SEES:<br/>Resuming case1.puff<br/>190 of 512 files already done"]
+  S1 -->|"new"| N1["SEES:<br/>Creating case1.puff"]
+
+  R1 --> W1["walking · sniffing · hashing"]
+  N1 --> W1
+
+  W1 --> X1{"Ctrl-C or crash?"}
+  X1 -->|"yes"| BACK1["nothing is lost —<br/>re-run the identical command"]
+  BACK1 --> U1
+
+  X1 -->|"finished"| O1["SEES:<br/>512 files scanned<br/>287 unique pictures<br/>25 duplicate paths<br/>200 skipped — not images<br/>index written: case1.puff<br/>took 41s"]
+
+  %% ============ STEP 2 ============
+  O1 --> U2["TYPES:<br/>puff status --index case1.puff"]
+  U2 --> O2["SEES:<br/>source    /evidence/dump<br/>indexed   2026-08-26 14:30<br/>pictures  287<br/>embedded  0 of 287  ← run puff embed<br/>ocr       0 of 287  ← run puff ocr"]
+
+  O2 --> WRONG["TYPES TOO EARLY:<br/>puff search 'a laptop'"]
+  WRONG --> E2["SEES:<br/>ERROR — this index has no embeddings.<br/>Run: puff embed --index case1.puff<br/><br/>NOT 'no results found'.<br/>Never let a missing step<br/>look like an empty answer."]
+  E2 --> U3
+
+  %% ============ STEP 3 ============
+  O2 --> U3["TYPES:<br/>puff embed --index case1.puff"]
+  U3 --> S3["SigLIP loads once,<br/>then batches of 32"]
+  S3 --> X3{"crash?"}
+  X3 -->|"yes"| BACK3["re-run — picks up<br/>at picture 191"]
+  BACK3 --> U3
+  X3 -->|"finished"| O3["SEES:<br/>287 pictures embedded<br/>3m 12s · 5.6 pics/sec"]
+
+  %% ============ STEP 4 — THE ACTUAL LOOP ============
+  O3 --> U4["TYPES:<br/>puff search 'a laptop on a desk'"]
+  U4 --> S4["text encoder · dot product · top-k"]
+  S4 --> BR{"anything above<br/>the score floor?"}
+
+  BR -->|"no"| E4["SEES:<br/>No match above 0.15<br/>Best was 0.11 — DCIM/IMG_0042.jpg<br/>Try different wording.<br/><br/>Shows the near-miss so the analyst<br/>can judge whether the tool failed<br/>or the folder really is empty."]
+  E4 --> U4
+
+  BR -->|"yes"| O4["SEES:<br/>0.31  b7413b7c  DCIM/IMG_0042.jpg      +2 paths<br/>0.28  9f2a11c4  WhatsApp/Media/img5.jpg<br/>0.22  4c8e0d19  Download/photo_3.webp   +1 path"]
+
+  O4 --> U5["TYPES:<br/>puff show b7413b7c"]
+  U5 --> O5["SEES:<br/>sha256   b7413b7c...<br/>WEBP  640x427  35,490 bytes<br/>taken    2026-03-14 09:12 (EXIF)<br/>found at 3 paths:<br/>  DCIM/Camera/IMG_0042.jpg<br/>  WhatsApp/Media/Sent/IMG_0042.jpg<br/>  .thumbnails/1a2b3c.jpg<br/><br/>Three locations = it was taken here,<br/>then sent. That is the finding."]
+
+  O5 --> LOOP{"answered the question?"}
+  LOOP -->|"no — rephrase"| U4
+
+  %% ============ STEP 5 — v2 ============
+  LOOP -->|"now check for text"| U6["TYPES:<br/>puff ocr --index case1.puff"]
+  U6 --> O6["SEES:<br/>287 pictures · 94 passed the gate<br/>193 skipped by gate<br/>94 OCR'd in 2m 40s"]
+  O6 --> U7["TYPES:<br/>puff text 'INVOICE'"]
+  U7 --> O7["SEES:<br/>2 pictures<br/>  a1f4... Download/scan_02.png<br/>     '...TAX INVOICE No. 88213...'<br/>  c9d2... DCIM/IMG_0311.jpg<br/>     '...INVOICE ATTACHED...'"]
+
+  O7 --> LOOP
+
+  %% ============ STEP 6 ============
+  LOOP -->|"yes"| U8["TYPES:<br/>puff search 'a laptop' --json"]
+  U8 --> DONE(["structured results<br/>for the report / the v3 eval script<br/><br/>Same search function.<br/>Only the formatter changed."])
+
+  %% ============ SIDE PATHS ============
+  O1 -.-> U9["TYPES:<br/>puff skipped --index case1.puff"]
+  U9 --> O9["SEES:<br/>200 skipped<br/>  198  not an image<br/>    1  permission denied  ← worth a look<br/>    1  truncated file     ← worth a look<br/><br/>A forensic tool must let you<br/>audit what it ignored."]
+
+  classDef user fill:#1e3a5f,stroke:#63b3ed,color:#fff
+  classDef term fill:#12261a,stroke:#68d391,color:#e6ffee
+  classDef err fill:#3d1418,stroke:#fc8181,color:#ffe8e8
+  classDef sys fill:#2d3748,stroke:#a0aec0,color:#e2e8f0
+  classDef gate fill:#553c1b,stroke:#f6ad55,color:#fff
+
+  class U1,U2,U3,U4,U5,U6,U7,U8,U9,WRONG user
+  class O1,O2,O3,O4,O5,O6,O7,O9,R1,N1 term
+  class E1,E2,E4 err
+  class W1,S3,S4,BACK1,BACK3 sys
+  class S1,X1,X3,BR,LOOP gate
