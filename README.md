@@ -1,4 +1,4 @@
-# PuFF — Forensic Image Search
+# PuFF - Forensic Image Search
 
 A local tool that indexes a folder of images and makes them searchable two ways:
 
