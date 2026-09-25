@@ -1,5 +1,6 @@
 # PuFF: Forensic Image Search
 
+
 A local tool that indexes a folder of images and makes them searchable two ways:
 
 - **Semantic search:** "find images containing a laptop" (SigLIP embeddings)
