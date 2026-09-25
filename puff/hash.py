@@ -13,4 +13,4 @@ def hasher(file_path):
         
     return hashed.hexdigest()
     
-print(hasher("/mnt/c/Project_PuFF/README.md"))
+
