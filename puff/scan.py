@@ -1,6 +1,7 @@
 from pathlib import Path
 from PIL import Image
 from hash import hasher
+from metadata import get_meta_data
 
 def iter_files(root):
     for path in root.rglob("*"):
@@ -24,8 +25,10 @@ if __name__=="__main__":
         ok , fmt=is_image(path)
         if ok:
             obj=hasher(path)
+            meta = get_meta_data(path)
         else:
             obj = None
-        print(ok, fmt, path,obj)
+            meta = None
+        print(ok, fmt, path,obj,meta)
     
    
