@@ -11,6 +11,14 @@ def init_db(db_path):
                        format TEXT
                    )
                    """)
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS files (
+                       path TEXT PRIMARY KEY,
+                       sha256 TEXT,
+                       size INTEGER,
+                       mtime REAL
+                   )
+                   """)
     conn.commit()
     return conn
 
